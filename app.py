@@ -10,10 +10,10 @@ FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # every 5 minutes
 
 app = Flask(__name__)
 
-# -------- Yahoo Finance fetch --------
+# -------- Kraken fetch --------
 def fetch_kraken():
     url = "https://api.kraken.com/0/public/OHLC"
-    params = {"pair": "BTCUSD", "interval": 5}
+    params = {"pair": "BTCUSD", "interval": 5}  # 5-minute candles
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
     data = r.json()
@@ -50,7 +50,7 @@ def build_signal():
         f"RSI(14): {rsi:.2f}\n"
         f"MACD: {macd_line:.2f} vs Signal {macd_signal:.2f}\n"
         f"EMA(50): {ema:.2f}\n"
-        f"TF: 5m (Yahoo Finance)"
+        f"TF: 5m (Kraken)"
     )
     return text, direction
 
@@ -65,7 +65,7 @@ def send_telegram(text):
 # -------- Flask routes --------
 @app.get("/")
 def root():
-    return "BTC signal bot is running (Yahoo Finance)."
+    return "BTC signal bot is running (Kraken)."
 
 @app.get("/signal")
 def manual_signal():
@@ -87,4 +87,3 @@ def worker():
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
-
