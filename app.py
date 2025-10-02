@@ -3,26 +3,25 @@ import pandas as pd
 import pandas_ta as ta
 from flask import Flask
 
-# ============ CONFIG (via Render env vars) ============
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # from @BotFather
-CHAT_ID        = os.environ.get("CHAT_ID")         # from @userinfobot
-SYMBOL         = os.environ.get("SYMBOL", "BTCUSDT")
-INTERVAL       = os.environ.get("INTERVAL", "15m")   # e.g. 1m, 5m, 15m, 1h, 4h
-LIMIT          = int(os.environ.get("LIMIT", "200"))
-FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "900"))  # 900s = 15m
+# ============ CONFIG ============
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID        = os.environ.get("CHAT_ID")
+SYMBOL         = "bitcoin"   # CoinGecko ID
+FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # every 5 minutes
 
 app = Flask(__name__)
 
-def fetch_klines(symbol, interval, limit):
-    url = "https://api.binance.com/api/v3/klines"
-    r = requests.get(url, params={"symbol": symbol, "interval": interval, "limit": limit}, timeout=15)
+def fetch_coingecko():
+    url = f"https://api.coingecko.com/api/v3/coins/{SYMBOL}/market_chart"
+    params = {"vs_currency": "usd", "days": "1", "interval": "minute"}
+    r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
     data = r.json()
-    closes = [float(c[4]) for c in data]  # close price
+    closes = [p[1] for p in data["prices"]]
     return pd.DataFrame({"close": closes})
 
 def build_signal():
-    df = fetch_klines(SYMBOL, INTERVAL, LIMIT)
+    df = fetch_coingecko()
 
     # Indicators (RSI + MACD + EMA)
     df["RSI_14"] = ta.rsi(df["close"], length=14)
@@ -46,11 +45,11 @@ def build_signal():
 
     text = (
         f"{emoji} {direction}\n"
-        f"Price: {price:.2f} USDT\n"
+        f"Price: {price:.2f} USD\n"
         f"RSI(14): {rsi:.2f}\n"
         f"MACD: {macd_line:.2f} vs Signal {macd_signal:.2f}\n"
         f"EMA(50): {ema:.2f}\n"
-        f"TF: {SYMBOL} {INTERVAL}"
+        f"TF: 1m (CoinGecko)"
     )
     return text, direction
 
@@ -63,7 +62,7 @@ def send_telegram(text):
 
 @app.get("/")
 def root():
-    return "BTC signal bot is running."
+    return "BTC signal bot is running (CoinGecko)."
 
 @app.get("/signal")
 def manual_signal():
@@ -71,12 +70,12 @@ def manual_signal():
     return text
 
 def worker():
-    time.sleep(5)  # small delay on startup
+    time.sleep(5)
     last_sent = None
     while True:
         try:
             text, direction = build_signal()
-            # send only meaningful updates (avoid spamming repeated NO SIGNAL)
+            # send updates
             if direction != "NO SIGNAL" or last_sent != direction:
                 send_telegram(text)
             last_sent = direction
@@ -84,5 +83,4 @@ def worker():
             print("Worker error:", e)
         time.sleep(FREQUENCY_SECS)
 
-# start background loop even under gunicorn
 threading.Thread(target=worker, daemon=True).start()
