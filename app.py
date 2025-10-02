@@ -91,8 +91,7 @@ def worker():
         wait = FREQUENCY_SECS - (now % FREQUENCY_SECS)
         time.sleep(wait)
 
-# -------- Ensure worker starts correctly --------
+# -------- Ensure worker starts correctly (Flask 3.x) --------
 @app.before_serving
 def activate_worker():
     threading.Thread(target=worker, daemon=True).start()
-
