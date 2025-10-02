@@ -52,7 +52,7 @@ def build_signal():
         f"EMA(50): {ema:.2f}\n"
         f"TF: 5m (Kraken)"
     )
-    return text, direction
+    return text
 
 # -------- Telegram --------
 def send_telegram(text):
@@ -69,20 +69,18 @@ def root():
 
 @app.get("/signal")
 def manual_signal():
-    text, _ = build_signal()
+    text = build_signal()
     return text
 
 # -------- Background worker --------
 def worker():
-    def worker():
     time.sleep(5)
     while True:
         try:
-            text, direction = build_signal()
+            text = build_signal()
             send_telegram(text)   # always send every 5 minutes
         except Exception as e:
             print("Worker error:", e)
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
-
