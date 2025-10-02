@@ -6,7 +6,7 @@ from flask import Flask
 # ============ CONFIG ============
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID        = os.environ.get("CHAT_ID")
-FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # default: 300s = 5 min
+FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # default: 5 minutes
 
 app = Flask(__name__)
 
@@ -91,6 +91,10 @@ def worker():
         wait = FREQUENCY_SECS - (now % FREQUENCY_SECS)
         time.sleep(wait)
 
-# -------- Start worker thread safely --------
-if os.environ.get("RUN_MAIN") == "true":  # prevents double-start with gunicorn
-    threading.Thread(target=worker, daemon=True).start()
+# -------- Safe start (survives reloads) --------
+def start_worker_once():
+    if not getattr(app, "worker_started", False):
+        threading.Thread(target=worker, daemon=True).start()
+        app.worker_started = True
+
+start_worker_once()
