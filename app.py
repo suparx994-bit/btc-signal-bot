@@ -11,18 +11,18 @@ FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # every 5 minutes
 app = Flask(__name__)
 
 # -------- Yahoo Finance fetch --------
-def fetch_yahoo():
-    url = "https://query1.finance.yahoo.com/v8/finance/chart/BTC-USD?interval=5m&range=1d"
-    r = requests.get(url, timeout=15)
+def fetch_kraken():
+    url = "https://api.kraken.com/0/public/OHLC"
+    params = {"pair": "BTCUSD", "interval": 5}
+    r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
     data = r.json()
-    closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-    closes = [c for c in closes if c is not None]  # remove Nones
+    closes = [float(c[4]) for c in data["result"]["XXBTZUSD"]]
     return pd.DataFrame({"close": closes})
 
 # -------- Build signal --------
 def build_signal():
-    df = fetch_yahoo()
+    df = fetch_kraken()
 
     # Indicators (RSI + MACD + EMA)
     df["RSI_14"] = ta.rsi(df["close"], length=14)
@@ -87,3 +87,4 @@ def worker():
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
+
