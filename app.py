@@ -74,16 +74,15 @@ def manual_signal():
 
 # -------- Background worker --------
 def worker():
+    def worker():
     time.sleep(5)
-    last_sent = None
     while True:
         try:
             text, direction = build_signal()
-            if direction != "NO SIGNAL" or last_sent != direction:
-                send_telegram(text)
-            last_sent = direction
+            send_telegram(text)   # always send every 5 minutes
         except Exception as e:
             print("Worker error:", e)
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
+
