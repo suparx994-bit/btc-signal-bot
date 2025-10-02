@@ -14,11 +14,13 @@ app = Flask(__name__)
 def fetch_coingecko():
     url = f"https://api.coingecko.com/api/v3/coins/{SYMBOL}/market_chart"
     params = {"vs_currency": "usd", "days": "1", "interval": "minute"}
-    r = requests.get(url, params=params, timeout=15)
+    headers = {"User-Agent": "Mozilla/5.0"}   # 👈 this is new
+    r = requests.get(url, params=params, headers=headers, timeout=15)
     r.raise_for_status()
     data = r.json()
     closes = [p[1] for p in data["prices"]]
     return pd.DataFrame({"close": closes})
+
 
 def build_signal():
     df = fetch_coingecko()
@@ -84,3 +86,4 @@ def worker():
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
+
