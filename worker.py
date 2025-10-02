@@ -1,21 +1,29 @@
-import os, time, requests
+import os, time, requests, json
 import pandas as pd
 import pandas_ta as ta
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")   # same token
+WEB_URL        = os.environ.get("WEB_URL")          # e.g. https://your-app.onrender.com (no trailing slash)
+SUBSCRIBERS_KEY= os.environ.get("SUBSCRIBERS_KEY")  # must match the Web service
 
-# -------- Kraken fetch --------
+def fetch_subscribers():
+    try:
+        r = requests.get(f"{WEB_URL}/subscribers", params={"key": SUBSCRIBERS_KEY}, timeout=10)
+        r.raise_for_status()
+        return r.json()  # list of chat_id strings
+    except Exception as e:
+        print("fetch_subscribers error:", e)
+        return []
+
 def fetch_kraken():
     url = "https://api.kraken.com/0/public/OHLC"
-    params = {"pair": "BTCUSD", "interval": 5}  # 5-minute candles
+    params = {"pair": "BTCUSD", "interval": 5}
     r = requests.get(url, params=params, timeout=15)
     r.raise_for_status()
     data = r.json()
     closes = [float(c[4]) for c in data["result"]["XXBTZUSD"]]
     return pd.DataFrame({"close": closes})
 
-# -------- Build signal --------
 def build_signal():
     df = fetch_kraken()
     df["RSI_14"] = ta.rsi(df["close"], length=14)
@@ -30,7 +38,6 @@ def build_signal():
     macd_signal = last["MACDs_12_26_9"]
     ema   = last["EMA_50"]
 
-    # Decide signal
     if rsi < 30 and macd_line > macd_signal and price > ema:
         direction, emoji = "BUY", "✅"
     elif rsi > 70 and macd_line < macd_signal and price < ema:
@@ -48,24 +55,27 @@ def build_signal():
     )
     return text
 
-# -------- Telegram --------
-def send_telegram(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Missing TELEGRAM_TOKEN or CHAT_ID")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+def send_telegram(chat_id, text):
     try:
-        requests.post(url, json={"chat_id": CHAT_ID, "text": text}, timeout=15)
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15,
+        )
     except Exception as e:
         print("Telegram send error:", e)
 
-# -------- Main loop --------
 if __name__ == "__main__":
     while True:
         try:
-            text = build_signal()
-            print("Sending:", text)
-            send_telegram(text)
+            subs = fetch_subscribers()
+            if not subs:
+                print("No subscribers yet.")
+            else:
+                text = build_signal()
+                print(f"Sending to {len(subs)} subs")
+                for cid in subs:
+                    send_telegram(cid, text)
         except Exception as e:
             print("Worker error:", e)
-        time.sleep(300)  # every 5 minutes
+        time.sleep(60)  # every 1 minute
