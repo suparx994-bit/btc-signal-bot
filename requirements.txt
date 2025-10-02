@@ -4,3 +4,4 @@ requests
 pandas
 pandas_ta
 numpy
+psycopg2-binary
