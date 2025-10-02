@@ -11,19 +11,18 @@ FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # every 5 minutes
 
 app = Flask(__name__)
 
-def fetch_coingecko():
-    url = f"https://api.coingecko.com/api/v3/coins/{SYMBOL}/market_chart"
-    params = {"vs_currency": "usd", "days": "1", "interval": "minute"}
-    headers = {"User-Agent": "Mozilla/5.0"}   # 👈 this is new
-    r = requests.get(url, params=params, headers=headers, timeout=15)
+def fetch_yahoo():
+    url = "https://query1.finance.yahoo.com/v8/finance/chart/BTC-USD?interval=5m&range=1d"
+    r = requests.get(url, timeout=15)
     r.raise_for_status()
     data = r.json()
-    closes = [p[1] for p in data["prices"]]
+    closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+    closes = [c for c in closes if c is not None]  # remove None values
     return pd.DataFrame({"close": closes})
 
 
 def build_signal():
-    df = fetch_coingecko()
+    df = fetch_yahoo()
 
     # Indicators (RSI + MACD + EMA)
     df["RSI_14"] = ta.rsi(df["close"], length=14)
@@ -51,7 +50,7 @@ def build_signal():
         f"RSI(14): {rsi:.2f}\n"
         f"MACD: {macd_line:.2f} vs Signal {macd_signal:.2f}\n"
         f"EMA(50): {ema:.2f}\n"
-        f"TF: 1m (CoinGecko)"
+        f"TF: 5m (Yahoo Finance)"
     )
     return text, direction
 
@@ -86,4 +85,5 @@ def worker():
         time.sleep(FREQUENCY_SECS)
 
 threading.Thread(target=worker, daemon=True).start()
+
 
