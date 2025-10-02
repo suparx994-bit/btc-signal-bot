@@ -92,6 +92,7 @@ def worker():
         time.sleep(wait)
 
 # -------- Ensure worker starts correctly --------
-@app.before_first_request
+@app.before_serving
 def activate_worker():
     threading.Thread(target=worker, daemon=True).start()
+
