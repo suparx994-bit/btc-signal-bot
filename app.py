@@ -1,28 +1,65 @@
 from flask import Flask, request, jsonify
-import os, json, requests
+import os, requests, json
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import pandas as pd
 import pandas_ta as ta
 
 app = Flask(__name__)
 
-USERS_FILE = "users.json"
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # already set on your Web service
-SUBSCRIBERS_KEY = os.environ.get("SUBSCRIBERS_KEY", "change-me")  # set this in Render (Web + Worker)
+# ------- ENV -------
+TELEGRAM_TOKEN  = os.environ.get("TELEGRAM_TOKEN")
+SUBSCRIBERS_KEY = os.environ.get("SUBSCRIBERS_KEY", "change-me")
+DATABASE_URL    = os.environ.get("DATABASE_URL")  # postgres://...
+TRC20_ADDRESS   = os.environ.get("TRC20_ADDRESS", "")  # your fixed TRON address
+BEP20_ADDRESS   = os.environ.get("BEP20_ADDRESS", "")  # your fixed BSC address
 
-def load_users():
-    try:
-        with open(USERS_FILE, "r") as f:
-            return set(json.load(f))
-    except Exception:
-        return set()
+# ------- DB helpers -------
+def get_conn():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
-def save_users(users_set):
-    try:
-        with open(USERS_FILE, "w") as f:
-            json.dump(list(users_set), f)
-    except Exception as e:
-        print("save_users error:", e)
+def init_db():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    chat_id TEXT PRIMARY KEY
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS payments (
+                    id SERIAL PRIMARY KEY,
+                    chain TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL UNIQUE,
+                    token TEXT NOT NULL,
+                    to_address TEXT NOT NULL,
+                    from_address TEXT,
+                    amount NUMERIC(38, 12) NOT NULL,
+                    ts TIMESTAMPTZ DEFAULT NOW(),
+                    note TEXT
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS kv (
+                    k TEXT PRIMARY KEY,
+                    v TEXT
+                );
+            """)
+            conn.commit()
 
+def add_subscriber(chat_id: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO subscribers (chat_id) VALUES (%s) ON CONFLICT DO NOTHING", (chat_id,))
+            conn.commit()
+
+def get_subscribers():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT chat_id FROM subscribers")
+            return [row[0] for row in cur.fetchall()]
+
+# ------- Market signal (unchanged) -------
 def fetch_kraken():
     url = "https://api.kraken.com/0/public/OHLC"
     params = {"pair": "BTCUSD", "interval": 5}
@@ -38,63 +75,72 @@ def build_signal():
     macd = ta.macd(df["close"], fast=12, slow=26, signal=9)
     df = pd.concat([df, macd], axis=1)
     df["EMA_50"] = ta.ema(df["close"], length=50)
-
     last = df.dropna().iloc[-1]
-    price = last["close"]
-    rsi   = last["RSI_14"]
-    macd_line   = last["MACD_12_26_9"]
-    macd_signal = last["MACDs_12_26_9"]
-    ema   = last["EMA_50"]
-
-    text = (
+    price = last["close"]; rsi = last["RSI_14"]
+    macd_line = last["MACD_12_26_9"]; macd_signal = last["MACDs_12_26_9"]; ema = last["EMA_50"]
+    return (
         f"Price: {price:.2f} USD\n"
         f"RSI(14): {rsi:.2f}\n"
         f"MACD: {macd_line:.2f} vs Signal {macd_signal:.2f}\n"
         f"EMA(50): {ema:.2f}\n"
         f"TF: 5m (Kraken)"
     )
-    return text
 
+# ------- Routes -------
 @app.get("/")
 def root():
-    return "BTC signal bot is running (Public mode)."
+    return "BTC signal bot is running (public + payments)."
 
 @app.get("/signal")
 def signal():
     return build_signal()
 
-# --- Private endpoint the worker uses to get all subscribers
 @app.get("/subscribers")
 def subscribers():
     key = request.args.get("key")
     if key != SUBSCRIBERS_KEY:
         return "forbidden", 403
-    users = list(load_users())
-    return jsonify(users)
+    return jsonify(get_subscribers())
 
-# --- Telegram webhook: add any user who presses Start or sends a message
+# Telegram webhook: save user + reply to /pay
 @app.post("/webhook")
 def telegram_webhook():
     data = request.get_json(silent=True) or {}
     msg = data.get("message") or data.get("edited_message") or {}
     chat = msg.get("chat") or {}
     cid = chat.get("id")
+    text = (msg.get("text") or "").strip().lower()
 
-    if not cid:
-        return "ok"
+    if cid:
+        add_subscriber(str(cid))
 
-    users = load_users()
-    if str(cid) not in users:
-        users.add(str(cid))
-        save_users(users)
-        # Welcome message
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": cid, "text": "Welcome! You are subscribed to BTC signals ✅"},
-                timeout=15,
+        if text == "/pay":
+            pay_msg = (
+                "💳 *USDT Payment Addresses*\n"
+                f"• TRC20 (TRON): `{TRC20_ADDRESS}`\n"
+                f"• BEP20 (BSC): `{BEP20_ADDRESS}`\n\n"
+                "Send and reply here with your TX hash if needed."
             )
-        except Exception as e:
-            print("welcome send error:", e)
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                    json={"chat_id": cid, "text": pay_msg, "parse_mode": "Markdown"},
+                    timeout=15,
+                )
+            except Exception as e:
+                print("send /pay error:", e)
+        elif text in ("/start", "start"):
+            welcome = "Welcome! You are subscribed to BTC signals ✅\nType /pay to see payment addresses."
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                    json={"chat_id": cid, "text": welcome},
+                    timeout=15,
+                )
+            except Exception as e:
+                print("welcome send error:", e)
 
     return "ok"
+
+# init DB on cold start
+init_db()
