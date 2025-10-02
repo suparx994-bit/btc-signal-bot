@@ -91,8 +91,7 @@ def worker():
         wait = FREQUENCY_SECS - (now % FREQUENCY_SECS)
         time.sleep(wait)
 
+# -------- Ensure worker starts correctly --------
 @app.before_first_request
 def activate_worker():
     threading.Thread(target=worker, daemon=True).start()
-
-
