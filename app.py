@@ -91,7 +91,6 @@ def worker():
         wait = FREQUENCY_SECS - (now % FREQUENCY_SECS)
         time.sleep(wait)
 
-# -------- Ensure worker starts correctly (Flask 3.x) --------
-@app.before_serving
-def activate_worker():
+# -------- Start worker thread safely --------
+if os.environ.get("RUN_MAIN") == "true":  # prevents double-start with gunicorn
     threading.Thread(target=worker, daemon=True).start()
