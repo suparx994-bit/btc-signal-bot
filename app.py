@@ -6,7 +6,7 @@ from flask import Flask
 # ============ CONFIG ============
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID        = os.environ.get("CHAT_ID")
-FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # every 5 minutes
+FREQUENCY_SECS = int(os.environ.get("FREQUENCY_SECS", "300"))  # default: 300s = 5 min
 
 app = Flask(__name__)
 
@@ -60,7 +60,10 @@ def send_telegram(text):
         print("Missing TELEGRAM_TOKEN or CHAT_ID")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": CHAT_ID, "text": text}, timeout=15)
+    try:
+        requests.post(url, json={"chat_id": CHAT_ID, "text": text}, timeout=15)
+    except Exception as e:
+        print("Telegram send error:", e)
 
 # -------- Flask routes --------
 @app.get("/")
@@ -78,9 +81,14 @@ def worker():
     while True:
         try:
             text = build_signal()
-            send_telegram(text)   # always send every 5 minutes
+            print("Sending signal:", text)   # log for Render
+            send_telegram(text)
         except Exception as e:
             print("Worker error:", e)
-        time.sleep(FREQUENCY_SECS)
+
+        # align to real clock (next multiple of FREQUENCY_SECS)
+        now = int(time.time())
+        wait = FREQUENCY_SECS - (now % FREQUENCY_SECS)
+        time.sleep(wait)
 
 threading.Thread(target=worker, daemon=True).start()
