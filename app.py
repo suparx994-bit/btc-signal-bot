@@ -16,7 +16,7 @@ BEP20_ADDRESS = os.environ.get("BEP20_ADDRESS", "")
 def get_conn():
     return psycopg2.connect(DATABASE_URL, sslmode="require")
 
-# Ensure tables
+# Ensure tables exist
 with get_conn() as conn:
     with conn.cursor() as cur:
         cur.execute("""
@@ -36,7 +36,6 @@ with get_conn() as conn:
         """)
     conn.commit()
 
-# Save subscriber
 def add_subscriber(chat_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -46,7 +45,7 @@ def add_subscriber(chat_id):
 @app.post("/webhook")
 def telegram_webhook():
     data = request.get_json(silent=True) or {}
-    print("Incoming JSON:", json.dumps(data, indent=2))  # 👈 log full payload
+    print("Incoming JSON:", json.dumps(data, indent=2))
 
     msg = data.get("message") or {}
     chat = msg.get("chat") or {}
@@ -61,7 +60,8 @@ def telegram_webhook():
                 "💳 *USDT Payment Addresses*\n"
                 f"• TRC20 (TRON): `{TRC20_ADDRESS}`\n"
                 f"• BEP20 (BSC): `{BEP20_ADDRESS}`\n\n"
-                "Send and reply here with your TX hash if needed."
+                "Send USDT to one of the above.\n"
+                "⚠️ If using the same address for many users, share your TX hash after payment."
             )
             resp = requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
