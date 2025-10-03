@@ -106,10 +106,23 @@ def subscribers():
 @app.post("/webhook")
 def telegram_webhook():
     data = request.get_json(silent=True) or {}
-    msg = data.get("message") or data.get("edited_message") or {}
-    chat = msg.get("chat") or {}
-    cid = chat.get("id")
+    print("Incoming JSON:", json.dumps(data, indent=2))  # log whole Telegram payload
+    msg = data.get("message") or {}
     text = (msg.get("text") or "").strip().lower()
+    cid = msg.get("chat", {}).get("id")
+
+    if cid and text.startswith("/pay"):
+        pay_msg = (
+            f"TRC20: {os.environ.get('TRC20_ADDRESS')}\n"
+            f"BEP20: {os.environ.get('BEP20_ADDRESS')}"
+        )
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={"chat_id": cid, "text": pay_msg}
+        )
+        print("Telegram API response:", resp.text)
+
+    return "ok"
 
     if cid:
         add_subscriber(str(cid))
@@ -144,3 +157,4 @@ def telegram_webhook():
 
 # init DB on cold start
 init_db()
+
